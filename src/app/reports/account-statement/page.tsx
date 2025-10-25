@@ -1,26 +1,39 @@
 
 "use client";
 
-import React, { Suspense, useEffect, useState, useCallback } from 'react';
+import React, { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Terminal } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import ReportGenerator from '@/app/reports/account-statement/components/report-generator';
 import { useVoucherNav } from '@/context/voucher-nav-context';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-export default function AccountStatementPage() {
+function AccountStatementPageContent() {
     const searchParams = useSearchParams();
     const defaultAccountId = searchParams.get('accountId') || '';
-    const { data: navData, loaded: navLoaded, fetchData } = useVoucherNav();
+    const { data: navData, loaded: navLoaded } = useVoucherNav();
     
-    useEffect(() => {
-        if (!navLoaded) {
-            fetchData();
-        }
-    }, [navLoaded, fetchData]);
+    if (!navLoaded || !navData) {
+        return (
+            <div className="p-4">
+                <Skeleton className="h-[60vh] w-full" />
+            </div>
+        )
+    }
 
+    return (
+        <ReportGenerator 
+            defaultAccountId={defaultAccountId}
+            boxes={navData.boxes || []}
+            clients={navData.clients || []}
+            suppliers={navData.suppliers || []}
+            exchanges={navData.exchanges || []}
+        />
+    )
+}
+
+export default function AccountStatementPage() {
     return (
         <div className="space-y-6">
             <Card>
@@ -31,21 +44,13 @@ export default function AccountStatementPage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {!navLoaded || !navData ? (
-                        <div className="p-4">
-                            <Skeleton className="h-[60vh] w-full" />
-                        </div>
-                    ) : (
-                        <ReportGenerator 
-                            defaultAccountId={defaultAccountId}
-                            boxes={navData.boxes || []}
-                            clients={navData.clients || []}
-                            suppliers={navData.suppliers || []}
-                            exchanges={navData.exchanges || []}
-                        />
-                    )}
+                    <Suspense fallback={<Skeleton className="h-[60vh] w-full" />}>
+                        <AccountStatementPageContent />
+                    </Suspense>
                 </CardContent>
             </Card>
         </div>
     )
 }
+
+    

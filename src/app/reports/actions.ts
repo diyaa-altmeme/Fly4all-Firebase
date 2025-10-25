@@ -26,24 +26,31 @@ export async function getAccountStatement(filters: { accountId: string; dateFrom
     
     rows = []; // Reset rows
     
-    const allVouchersSnap = await db.collection('journal-vouchers').orderBy('date', 'asc').get();
+    const allVouchersSnap = await db.collection('journal-vouchers').get();
 
     allVouchersSnap.forEach(doc => {
         const v = doc.data() as JournalVoucher;
         
         if (v.isDeleted) return;
 
-        const voucherDate = parseISO(v.date);
+        let voucherDate;
+        if (v.date && typeof v.date === 'string') {
+            voucherDate = parseISO(v.date);
+        } else if (v.date && (v.date as any).toDate) { // Handle Firestore Timestamp
+            voucherDate = (v.date as any).toDate();
+        } else {
+            return; // Skip if date is invalid
+        }
+
         if (dateFrom && voucherDate < dateFrom) return;
         if (dateTo && voucherDate > dateTo) return;
         
-        const isRelevant = v.debitEntries?.some(e => e.accountId === accountId) || v.creditEntries?.some(e => e.accountId === accountId);
+        const isRelevant = (v.debitEntries?.some(e => e.accountId === accountId) || v.creditEntries?.some(e => e.accountId === accountId));
         
         if (isRelevant) {
              v.debitEntries?.forEach((entry, index) => {
                 if (entry.accountId === accountId) {
                     let description = entry.description || v.notes;
-                    // FIX: Modify segment description
                     if (v.sourceType === 'segment' && description.startsWith('إيراد سكمنت من')) {
                         const parts = description.split(' للفترة من ');
                         if (parts.length > 1) {
@@ -64,7 +71,6 @@ export async function getAccountStatement(filters: { accountId: string; dateFrom
             v.creditEntries?.forEach((entry, index) => {
                 if (entry.accountId === accountId) {
                      let description = entry.description || v.notes;
-                     // FIX: Modify segment description
                      if (v.sourceType === 'segment' && description.startsWith('إيراد سكمنت من')) {
                         const parts = description.split(' للفترة من ');
                         if (parts.length > 1) {
@@ -89,18 +95,18 @@ export async function getAccountStatement(filters: { accountId: string; dateFrom
         ? rows.filter(r => (r.voucherType && voucherType.includes(r.voucherType)) || (r.sourceType && voucherType.includes(r.sourceType)))
         : rows;
         
-
-    let balanceUSD = 0;
-    let balanceIQD = 0;
+    const balances: Record<string, number> = {};
     const result = filteredRows
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
         .map((r: any) => {
-            if (r.currency === 'USD') {
-                balanceUSD += (r.debit || 0) - (r.credit || 0);
-            } else if (r.currency === 'IQD') {
-                balanceIQD += (r.debit || 0) - (r.credit || 0);
-            }
-            return { ...r, balanceUSD, balanceIQD };
+            const curr = r.currency || 'USD';
+            if (balances[curr] === undefined) balances[curr] = 0;
+            balances[curr] += (r.debit || 0) - (r.credit || 0);
+            return { 
+              ...r, 
+              balance: balances[curr], 
+              currency: curr 
+            };
         });
 
     return result;
@@ -239,3 +245,5 @@ export async function getDebtsReportData(): Promise<DebtsReportData> {
         }
     };
 }
+
+    

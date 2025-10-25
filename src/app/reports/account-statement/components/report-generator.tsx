@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, Filter, FileText, Download, Printer, Plane, CreditCard, Repeat, Layers3, Share2, Wand2, AreaChart, Wallet, Boxes, FileUp, FileDown, BookUser, XCircle, RefreshCw, Banknote, GitBranch, ArrowRightLeft, ChevronsRightLeft, Building, Users, Terminal, Copy } from "lucide-react";
+import { Loader2, Search, Filter, FileText, Download, Printer, Plane, CreditCard, Repeat, Layers3, Share2, Wand2, AreaChart, Wallet, Boxes, FileUp, FileDown, BookUser, XCircle, RefreshCw, Banknote, GitBranch, ArrowRightLeft, ChevronsRightLeft, Building, Users, Terminal, Copy, AlertCircle } from "lucide-react";
 import { Autocomplete } from "@/components/ui/autocomplete";
 import { useToast } from "@/hooks/use-toast";
 import { getAccountStatement } from "@/app/reports/actions";
@@ -28,14 +28,10 @@ import { useVoucherNav } from "@/context/voucher-nav-context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface ReportGeneratorProps {
-  boxes: Box[];
-  clients: Client[];
-  suppliers: Supplier[];
-  exchanges: Exchange[];
   defaultAccountId?: string;
 }
 
-export default function ReportGenerator({ boxes = [], clients = [], suppliers = [], exchanges = [], defaultAccountId }: ReportGeneratorProps) {
+export default function ReportGenerator({ defaultAccountId }: ReportGeneratorProps) {
   const [report, setReport] = useState<ReportInfo | null>(null);
   const [transactions, setTransactions] = useState<ReportTransaction[]>([]);
   const { data: navData } = useVoucherNav();
@@ -58,13 +54,14 @@ export default function ReportGenerator({ boxes = [], clients = [], suppliers = 
 
 
   const allAccounts = useMemo(() => {
+    if(!navData) return [];
     switch (accountType) {
         case 'box':
-            return boxes.map(b => ({ value: b.id, label: b.name }));
+            return navData.boxes.map(b => ({ value: b.id, label: b.name }));
         case 'exchange':
-            return exchanges.map(ex => ({ value: ex.id, label: ex.name }));
+            return navData.exchanges.map(ex => ({ value: ex.id, label: ex.name }));
         case 'expense':
-            return navData?.settings.voucherSettings?.expenseAccounts?.map(e => ({ value: `expense_${e.id}`, label: e.name })) || [];
+            return navData.settings?.voucherSettings?.expenseAccounts?.map(e => ({ value: `expense_${e.id}`, label: e.name })) || [];
         case 'static':
             return [
                 { value: "revenue_segments", label: "إيراد: السكمنت" },
@@ -76,11 +73,11 @@ export default function ReportGenerator({ boxes = [], clients = [], suppliers = 
             ];
         case 'relation':
         default:
-            const clientOptions = clients.map(c => ({ value: c.id, label: `عميل: ${c.name}` }));
-            const supplierOptions = suppliers.map(s => ({ value: s.id, label: `مورد: ${s.name}` }));
+            const clientOptions = (navData.clients || []).map(c => ({ value: c.id, label: `عميل: ${c.name}` }));
+            const supplierOptions = (navData.suppliers || []).map(s => ({ value: s.id, label: `مورد: ${s.name}` }));
             return [...clientOptions, ...supplierOptions];
     }
-  }, [accountType, clients, suppliers, boxes, exchanges, navData]);
+  }, [accountType, navData]);
 
    const allFilters = useMemo(() => [
         { id: 'booking', label: 'حجز طيران', icon: Plane, group: 'basic' },
@@ -142,21 +139,23 @@ export default function ReportGenerator({ boxes = [], clients = [], suppliers = 
               }
           });
           
-          const lastTransaction = transactionsData[transactionsData.length - 1];
+          const lastTransactionUSD = [...transactionsData].reverse().find(tx => tx.currency === 'USD');
+          const lastTransactionIQD = [...transactionsData].reverse().find(tx => tx.currency === 'IQD');
+
 
           setReport({
               transactions: transactionsData,
-              openingBalanceUSD: 0, // This should be calculated based on previous period
-              openingBalanceIQD: 0, // This should be calculated based on previous period
+              openingBalanceUSD: 0, 
+              openingBalanceIQD: 0,
               totalDebitUSD,
               totalCreditUSD,
-              finalBalanceUSD: lastTransaction.balanceUSD,
+              finalBalanceUSD: lastTransactionUSD?.balance || 0,
               totalDebitIQD,
               totalCreditIQD,
-              finalBalanceIQD: lastTransaction.balanceIQD,
+              finalBalanceIQD: lastTransactionIQD?.balance || 0,
               title: '',
               currency: filters.currency,
-              accountType: '',
+              accountType: '' as any,
               balanceMode: 'asset',
           });
       }
@@ -188,12 +187,10 @@ export default function ReportGenerator({ boxes = [], clients = [], suppliers = 
       'التاريخ': tx.date ? format(parseISO(tx.date), "yyyy-MM-dd") : "",
       'النوع': tx.type,
       'البيان': typeof tx.description === 'string' ? tx.description : tx.description?.title,
-      'مدين (USD)': tx.currency === 'USD' ? tx.debit : 0,
-      'دائن (USD)': tx.currency === 'USD' ? tx.credit : 0,
-      'الرصيد (USD)': tx.balanceUSD,
-      'مدين (IQD)': tx.currency === 'IQD' ? tx.debit : 0,
-      'دائن (IQD)': tx.currency === 'IQD' ? tx.credit : 0,
-      'الرصيد (IQD)': tx.balanceIQD,
+      'مدين': tx.debit,
+      'دائن': tx.credit,
+      'الرصيد': tx.balance,
+      'العملة': tx.currency,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -221,7 +218,7 @@ export default function ReportGenerator({ boxes = [], clients = [], suppliers = 
   }
 
   return (
-     <div className="flex flex-col lg:flex-row h-full lg:h-[calc(100vh-160px)] gap-4">
+     <div className="flex flex-col lg:flex-row h-full lg:h-[calc(100vh-210px)] gap-4">
       <aside className="w-full lg:w-80 flex-shrink-0 flex flex-col gap-4 lg:sticky top-20">
         <Card>
           <CardHeader>
